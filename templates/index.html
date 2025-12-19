@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CartPole DQN Training</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #eee;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #00d9ff;
+            text-shadow: 0 0 10px rgba(0,217,255,0.5);
+        }
+        .status-bar {
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .stat {
+            text-align: center;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #00d9ff;
+        }
+        .progress-container {
+            width: 100%;
+            margin-top: 10px;
+        }
+        .progress-bar {
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 900px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+        .card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .card-title {
+            font-size: 14px;
+            color: #888;
+            text-transform: uppercase;
+            margin-bottom: 15px;
+        }
+        .chart-container {
+            height: 300px;
+        }
+        #cartpole-canvas {
+            width: 100%;
+            height: 200px;
+            background: linear-gradient(180deg, #2a2a4a 0%, #1a1a2e 100%);
+            border-radius: 10px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .btn-start {
+            background: linear-gradient(135deg, #00d9ff, #00ff88);
+            color: #1a1a2e;
+        }
+        .btn-pause {
+            background: linear-gradient(135deg, #ffaa00, #ff6600);
+            color: #1a1a2e;
+        }
+        .btn-stop {
+            background: linear-gradient(135deg, #ff4444, #cc0000);
+            color: white;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .log {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            max-height: 150px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 13px;
+        }
+        .log-entry {
+            padding: 3px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 CartPole DQN Training</h1>
+        
+        <div class="status-bar">
+            <div class="stat">
+                <div class="stat-label">Episode</div>
+                <div class="stat-value" id="episode">0 / 500</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Reward</div>
+                <div class="stat-value" id="reward">0</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Avg Reward (100)</div>
+                <div class="stat-value" id="avg-reward">0</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Epsilon</div>
+                <div class="stat-value" id="epsilon">1.000</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Loss</div>
+                <div class="stat-value" id="loss">0.000</div>
+            </div>
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="main-content">
+            <div class="card">
+                <div class="card-title">Reward Curve</div>
+                <div class="chart-container">
+                    <canvas id="reward-chart"></canvas>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">CartPole Simulation</div>
+                <canvas id="cartpole-canvas"></canvas>
+                <div class="controls">
+                    <button class="btn btn-start" id="btn-start" onclick="startTraining()">Start</button>
+                    <button class="btn btn-pause" id="btn-pause" onclick="pauseTraining()" disabled>Pause</button>
+                    <button class="btn btn-stop" id="btn-stop" onclick="stopTraining()" disabled>Stop</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="log" id="log">
+            <div class="log-entry">Ready to start training...</div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let rewardChart;
+        let rewards = [];
+        let avgRewards = [];
+        
+        // Initialize chart
+        const ctx = document.getElementById('reward-chart').getContext('2d');
+        rewardChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Episode Reward',
+                        data: [],
+                        borderColor: 'rgba(0, 217, 255, 0.8)',
+                        backgroundColor: 'rgba(0, 217, 255, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'Avg Reward (100 ep)',
+                        data: [],
+                        borderColor: 'rgba(0, 255, 136, 1)',
+                        backgroundColor: 'transparent',
+                        borderWidth: 2,
+                        tension: 0.4,
+                        pointRadius: 0
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        display: true,
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        ticks: { color: '#888' }
+                    },
+                    y: {
+                        display: true,
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        ticks: { color: '#888' },
+                        min: 0,
+                        max: 500
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: '#888' }
+                    }
+                },
+                animation: { duration: 0 }
+            }
+        });
+        
+        // CartPole canvas
+        const canvas = document.getElementById('cartpole-canvas');
+        const cartCtx = canvas.getContext('2d');
+        
+        function resizeCanvas() {
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+        
+        function drawCartPole(position, angle) {
+            const w = canvas.width;
+            const h = canvas.height;
+            
+            cartCtx.clearRect(0, 0, w, h);
+            
+            // Ground
+            cartCtx.fillStyle = '#333';
+            cartCtx.fillRect(0, h - 30, w, 30);
+            
+            // Track
+            cartCtx.strokeStyle = '#555';
+            cartCtx.lineWidth = 3;
+            cartCtx.beginPath();
+            cartCtx.moveTo(50, h - 30);
+            cartCtx.lineTo(w - 50, h - 30);
+            cartCtx.stroke();
+            
+            // Scale position (-2.4 to 2.4) to canvas
+            const cartX = w/2 + (position / 2.4) * (w/2 - 100);
+            const cartY = h - 50;
+            const cartWidth = 60;
+            const cartHeight = 30;
+            const poleLength = 100;
+            
+            // Cart
+            cartCtx.fillStyle = '#00d9ff';
+            cartCtx.shadowColor = '#00d9ff';
+            cartCtx.shadowBlur = 10;
+            cartCtx.fillRect(cartX - cartWidth/2, cartY - cartHeight/2, cartWidth, cartHeight);
+            cartCtx.shadowBlur = 0;
+            
+            // Wheels
+            cartCtx.fillStyle = '#333';
+            cartCtx.beginPath();
+            cartCtx.arc(cartX - 20, cartY + cartHeight/2, 8, 0, Math.PI * 2);
+            cartCtx.arc(cartX + 20, cartY + cartHeight/2, 8, 0, Math.PI * 2);
+            cartCtx.fill();
+            
+            // Pole
+            const poleEndX = cartX + Math.sin(angle) * poleLength;
+            const poleEndY = cartY - Math.cos(angle) * poleLength;
+            
+            cartCtx.strokeStyle = '#ff6600';
+            cartCtx.shadowColor = '#ff6600';
+            cartCtx.shadowBlur = 5;
+            cartCtx.lineWidth = 8;
+            cartCtx.lineCap = 'round';
+            cartCtx.beginPath();
+            cartCtx.moveTo(cartX, cartY - cartHeight/2);
+            cartCtx.lineTo(poleEndX, poleEndY);
+            cartCtx.stroke();
+            cartCtx.shadowBlur = 0;
+            
+            // Pole tip
+            cartCtx.fillStyle = '#ffaa00';
+            cartCtx.beginPath();
+            cartCtx.arc(poleEndX, poleEndY, 6, 0, Math.PI * 2);
+            cartCtx.fill();
+        }
+        
+        drawCartPole(0, 0);
+        
+        // Socket events
+        socket.on('connect', () => {
+            addLog('Connected to server');
+        });
+        
+        socket.on('status', (data) => {
+            addLog(data.message);
+        });
+        
+        socket.on('episode_update', (data) => {
+            document.getElementById('episode').textContent = `${data.episode} / ${data.total_episodes}`;
+            document.getElementById('reward').textContent = data.reward.toFixed(0);
+            document.getElementById('avg-reward').textContent = data.avg_reward.toFixed(1);
+            document.getElementById('epsilon').textContent = data.epsilon.toFixed(3);
+            document.getElementById('loss').textContent = data.loss.toFixed(4);
+            document.getElementById('progress').style.width = `${(data.episode / data.total_episodes) * 100}%`;
+            
+            // Update chart
+            rewardChart.data.labels.push(data.episode);
+            rewardChart.data.datasets[0].data.push(data.reward);
+            rewardChart.data.datasets[1].data.push(data.avg_reward);
+            
+            // Keep last 200 points for performance
+            if (rewardChart.data.labels.length > 200) {
+                rewardChart.data.labels.shift();
+                rewardChart.data.datasets[0].data.shift();
+                rewardChart.data.datasets[1].data.shift();
+            }
+            
+            rewardChart.update('none');
+        });
+        
+        socket.on('cart_state', (data) => {
+            drawCartPole(data.position, data.angle);
+        });
+        
+        socket.on('training_complete', (data) => {
+            addLog(`${data.message} Final Avg Reward: ${data.final_avg_reward.toFixed(1)}`);
+            document.getElementById('btn-start').disabled = false;
+            document.getElementById('btn-pause').disabled = true;
+            document.getElementById('btn-stop').disabled = true;
+        });
+        
+        function startTraining() {
+            socket.emit('start_training');
+            document.getElementById('btn-start').disabled = true;
+            document.getElementById('btn-pause').disabled = false;
+            document.getElementById('btn-stop').disabled = false;
+            
+            // Reset chart
+            rewardChart.data.labels = [];
+            rewardChart.data.datasets[0].data = [];
+            rewardChart.data.datasets[1].data = [];
+            rewardChart.update();
+        }
+        
+        function pauseTraining() {
+            socket.emit('pause_training');
+            const btn = document.getElementById('btn-pause');
+            btn.textContent = btn.textContent === 'Pause' ? 'Resume' : 'Pause';
+        }
+        
+        function stopTraining() {
+            socket.emit('stop_training');
+            document.getElementById('btn-start').disabled = false;
+            document.getElementById('btn-pause').disabled = true;
+            document.getElementById('btn-stop').disabled = true;
+            document.getElementById('btn-pause').textContent = 'Pause';
+        }
+        
+        function addLog(message) {
+            const log = document.getElementById('log');
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.textContent = `[${time}] ${message}`;
+            log.insertBefore(entry, log.firstChild);
+            
+            // Keep last 50 entries
+            while (log.children.length > 50) {
+                log.removeChild(log.lastChild);
+            }
+        }
+    </script>
+</body>
+</html>
